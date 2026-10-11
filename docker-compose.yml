@@ -1,0 +1,13 @@
+services:
+  alert-monitor:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.yaml:/app/config.yaml:ro
+      - monitor-data:/app/data
+
+volumes:
+  monitor-data:

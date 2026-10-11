@@ -1,0 +1,71 @@
+# Copy to config.yaml and adjust. ${VAR} and ${VAR:-default} read environment variables.
+
+discord:
+  webhook_url: ${DISCORD_WEBHOOK_URL}
+  username: Alert Monitor
+  critical_mention: ${CRITICAL_MENTION}   # optional role/user ping for critical alerts
+
+state_path: data/state.db     # cooldowns, last values, seen items (survives restarts)
+health_port: 8080             # 0 disables /health and /metrics
+log_level: INFO
+
+defaults:                      # applied to every source unless overridden
+  interval: 30                 # seconds between polls
+  timeout: 10                  # request timeout (seconds)
+  cooldown: 300                # min seconds between repeats of the same alert
+  failure_threshold: 3         # consecutive failures before a "source down" alert
+  max_backoff: 300             # cap for exponential backoff on failures
+
+sources:
+  # 1) Numeric threshold + percentage-change rules on a price API  
+  - name: minecraft_server
+    url: https://api.mcsrvstat.us/3/server/ragnarokmee.aternos.me:25338
+    interval: 60
+    rules:
+      - name: Server Offline Alert
+        path: online
+        type: threshold
+        operator: "=="
+        value: false
+        severity: critical
+        notify_resolved: true          # post a ✅ when it falls back under the line
+        message: "⚠️ The Minecraft server has gone OFFLINE!"   
+      - name: High Player Count
+        path: players.online
+        type: threshold
+        operator: ">="
+        value: 10                   # percent between two consecutive polls
+        direction: any                   # up | down | any
+        severity: info
+        notify_resolved: false
+        message: "🔥 The server is getting busy! There are currently {value} players online. "
+
+
+  # 2) Keyword matching on a status page
+  - name: github-status
+    url: https://www.githubstatus.com/api/v2/status.json
+    interval: 60
+    rules:
+      - name: GitHub incident
+        path: status.indicator
+        type: contains
+        value: [minor, major, critical]
+        severity: critical
+
+  # 3) New-item detection (releases, issues, feed entries...). First run only
+  #    seeds the "seen" list so you are not flooded with old items.
+  - name: sdk-releases
+    url: https://api.github.com/repos/anthropics/anthropic-sdk-python/releases
+    params: { per_page: 5 }
+    interval: 300
+    headers:
+      Accept: application/vnd.github+json
+      # Authorization: Bearer ${GITHUB_TOKEN}
+    rules:
+      - name: New release
+        path: "."                         # root of the response is the list
+        type: new_item
+        id_path: id
+        title_path: name
+        url_path: html_url
+        severity: info
